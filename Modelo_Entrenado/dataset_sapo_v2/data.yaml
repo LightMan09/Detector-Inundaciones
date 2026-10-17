@@ -1,0 +1,8 @@
+path: c:/Users/sneid/OneDrive/Escritorio/dataser/dataset_sapo_v2
+train: images/train
+val: images/val
+test: images/test
+names:
+  0: limpia
+  1: tapada
+  2: con_agua

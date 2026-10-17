@@ -1,0 +1,50 @@
+# SAPO — orquestación local
+# Docker 1: visual del usuario (solo consume el JSON del modelo)
+# Modelo:   Modelo_Entrenado (best.pt) publica data/live/detecciones.json y
+#           puede hacer POST a la API (X-Model-Token)
+# api:      alertas, priorización y despacho sobre el mismo JSON
+
+services:
+  api:
+    build: .
+    container_name: sapo-api
+    ports:
+      - "8000:8000"
+    environment:
+      SAPO_DATA_DIR: /srv/sapo/data
+      SAPO_DETECTIONS_FILE: /srv/sapo/data/live/detecciones.json
+      SAPO_CAMERA_REGISTRY: /srv/sapo/data/live/camaras.json
+      SAPO_MODEL_TOKEN: ${SAPO_MODEL_TOKEN:-token-modelo-demo}
+      SAPO_INGEST_TOKEN: ${SAPO_INGEST_TOKEN:-token-ingest-demo}
+    volumes:
+      - ./data:/srv/sapo/data
+      - ./visual:/srv/sapo/visual:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  visual:
+    image: nginx:1.27-alpine
+    container_name: sapo-visual
+    ports:
+      - "8080:80"
+    volumes:
+      - ./visual:/usr/share/nginx/html:ro
+      - ./data:/usr/share/nginx/html/data:ro
+    depends_on:
+      - api
+
+  # ------------------------------------------------------------------
+  # Modelo YOLO (Modelo_Entrenado). Se ejecuta en la máquina del modelo
+  # (necesita torch/ultralytics); publica el JSON que lee la web:
+  #
+  #   python Modelo_Entrenado/sapo_json.py \
+  #       --imagenes Modelo_Entrenado/dataset_sapo_v2/images/test \
+  #       --api http://localhost:8000 --token token-modelo-demo
+  #
+  # O en vivo con la cámara / video:
+  #
+  #   SAPO_API=http://localhost:8000 python Modelo_Entrenado/monitor_alcantarilla.py
+  # ------------------------------------------------------------------

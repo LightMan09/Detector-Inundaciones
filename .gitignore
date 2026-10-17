@@ -1,0 +1,17 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Entorno
+.env
+
+# Runtime / artefactos temporales
+data/live/camaras.json
+*.json.tmp

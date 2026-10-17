@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>SAPO · Engativá — Detección YOLO de encharcamientos y sumideros</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script id="tailwind-config">
+tailwind.config = {
+  darkMode: "class",
+  theme: {
+    extend: {
+      colors: {
+        "surface": "#fcf9f8", "surface-dim": "#dcd9d9", "surface-bright": "#fcf9f8",
+        "surface-container-lowest": "#ffffff", "surface-container-low": "#f6f3f2",
+        "surface-container": "#f0eded", "surface-container-high": "#eae7e7",
+        "surface-container-highest": "#e5e2e1",
+        "on-surface": "#1c1b1b", "on-surface-variant": "#5c403f",
+        "primary": "#9e001f", "primary-container": "#c8102e", "on-primary": "#ffffff",
+        "on-primary-container": "#ffdad8", "primary-fixed": "#ffdad8",
+        "secondary": "#7c5800", "secondary-container": "#fdbf3f", "on-secondary": "#ffffff",
+        "on-secondary-container": "#6f4e00",
+        "tertiary": "#454c5e", "tertiary-container": "#5d6476", "on-tertiary-container": "#dbe2f7",
+        "error": "#ba1a1a", "error-container": "#ffdad6", "on-error-container": "#93000a",
+        "outline": "#906f6e", "outline-variant": "#e5bdbb",
+        "inverse-surface": "#313030", "inverse-on-surface": "#f3f0ef",
+        "hydro": "#0284c7", "hydro-light": "#7dd3fc"
+      },
+      borderRadius: { DEFAULT: "0.125rem", lg: "0.25rem", xl: "0.5rem", full: "0.75rem" },
+      spacing: {
+        "space-xs": "0.25rem", "space-sm": "0.5rem", "space-md": "1rem",
+        "space-lg": "1.5rem", "space-xl": "2rem", "margin": "1.5rem", "gutter": "1rem"
+      },
+      fontFamily: { sans: ["Inter", "system-ui", "sans-serif"] },
+      fontSize: {
+        "metric-num": ["32px", { lineHeight: "36px", letterSpacing: "-0.02em", fontWeight: "700" }],
+        "display-sm": ["36px", { lineHeight: "42px", letterSpacing: "-0.015em", fontWeight: "700" }],
+        "headline-lg": ["28px", { lineHeight: "34px", letterSpacing: "-0.01em", fontWeight: "700" }],
+        "headline-md": ["20px", { lineHeight: "26px", fontWeight: "600" }],
+        "headline-sm": ["16px", { lineHeight: "22px", fontWeight: "600" }],
+        "label-lg": ["14px", { lineHeight: "20px", letterSpacing: "0.01em", fontWeight: "600" }],
+        "label-md": ["12px", { lineHeight: "16px", letterSpacing: "0.02em", fontWeight: "600" }],
+        "label-sm": ["11px", { lineHeight: "14px", letterSpacing: "0.04em", fontWeight: "700" }]
+      }
+    }
+  }
+}
+</script>
+<style>
+  @layer base {
+    html, body { margin: 0; padding: 0; }
+    body { overscroll-behavior: none; }
+  }
+  .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  .pin-tooltip { opacity: 0; visibility: hidden; transition: opacity .15s ease; }
+  .pin-wrap:hover .pin-tooltip, .pin-wrap.is-open .pin-tooltip { opacity: 1; visibility: visible; }
+  .heat-blob { pointer-events: none; border-radius: 9999px; filter: blur(2px); }
+  .sev-critico { background: #c8102e; }
+  .sev-alto { background: #ea580c; }
+  .sev-medio { background: #f59e0b; }
+  .sev-leve { background: #94a3b8; }
+  .sev-ok { background: #16a34a; }
+</style>
+</head>
+<body class="bg-surface font-sans text-on-surface antialiased">
+
+<!-- ============================ HEADER ============================ -->
+<header class="fixed top-0 w-full z-50 bg-surface/95 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.06)]">
+  <div class="w-full flex h-1.5">
+    <div class="w-1/3 bg-primary-container"></div>
+    <div class="w-1/3 bg-secondary-container"></div>
+    <div class="w-1/6 bg-surface-container-lowest"></div>
+    <div class="w-1/6 bg-on-surface"></div>
+  </div>
+  <div class="h-16 md:h-20 w-full px-4 md:px-margin flex items-center justify-between gap-space-md">
+    <div class="flex items-center gap-space-sm md:gap-space-md min-w-0">
+      <div class="h-9 w-9 rounded-full bg-primary-container flex items-center justify-center flex-shrink-0">
+        <span class="material-symbols-outlined text-on-primary text-[20px]">water_drop</span>
+      </div>
+      <div class="flex flex-col min-w-0">
+        <div class="flex items-center gap-space-xs min-w-0">
+          <span class="text-headline-sm text-on-surface truncate tracking-tight">SAPO</span>
+          <span class="text-label-sm px-space-xs py-0.5 rounded-lg bg-primary-container text-on-primary">LOCALIDAD 10 · ENGATIVÁ</span>
+          <span class="text-label-sm px-space-xs py-0.5 rounded-lg bg-secondary-container text-on-secondary-container hidden sm:inline">YOLO ACTIVO</span>
+        </div>
+        <span class="text-[12px] leading-4 text-on-surface-variant truncate hidden sm:inline">
+          Detección en tiempo real: agua, sumideros tapados y drenaje lento
+        </span>
+      </div>
+    </div>
+
+    <nav class="hidden xl:flex items-center gap-space-sm">
+      <a class="bg-primary-container text-on-primary font-bold rounded-lg px-space-sm py-1.5 shadow-sm text-label-lg" href="#mapa">Mapa de Riesgo</a>
+      <a class="text-on-surface-variant hover:text-on-surface transition-colors px-space-sm py-1.5 rounded-lg text-label-lg" href="#priorizacion">Priorización UPZ</a>
+      <a class="text-on-surface-variant hover:text-on-surface transition-colors px-space-sm py-1.5 rounded-lg text-label-lg" href="#eventos">Eventos del Modelo</a>
+      <a class="text-on-surface-variant hover:text-on-surface transition-colors px-space-sm py-1.5 rounded-lg text-label-lg" href="#protocolo">Protocolo IDIGER</a>
+      <a class="text-on-surface-variant hover:text-on-surface transition-colors px-space-sm py-1.5 rounded-lg text-label-lg" href="#ciclo">Cómo funciona</a>
+    </nav>
+
+    <div class="flex items-center gap-space-sm md:gap-space-md flex-shrink-0">
+      <div class="hidden md:flex items-center gap-space-xs px-space-sm py-1 rounded-full bg-surface-container border border-surface-container-high">
+        <span class="relative flex h-2.5 w-2.5">
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+          <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-primary-container"></span>
+        </span>
+        <span class="text-label-sm text-on-surface" id="header-modelo">Conectando con el modelo…</span>
+      </div>
+      <button class="hidden lg:flex items-center gap-space-xs bg-primary text-on-primary hover:bg-primary-container text-label-md px-space-md py-2 rounded-lg shadow-sm transition-colors" type="button" data-action="alerta">
+        <span class="material-symbols-outlined text-[16px]">warning</span>
+        <span>Alertas</span>
+      </button>
+      <button class="xl:hidden w-9 h-9 rounded-lg bg-surface-container flex items-center justify-center" id="nav-toggle" type="button" aria-label="Abrir menú">
+        <span class="material-symbols-outlined text-on-surface">menu</span>
+      </button>
+      <div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
+        <span class="material-symbols-outlined text-on-primary text-[18px]">person</span>
+      </div>
+    </div>
+  </div>
+  <nav class="hidden xl:hidden px-4 pb-3 flex flex-col gap-1 bg-surface border-t border-surface-container-high" id="nav-mobile">
+    <a class="px-space-sm py-2 rounded-lg text-label-lg text-on-surface hover:bg-surface-container" href="#mapa">Mapa de Riesgo</a>
+    <a class="px-space-sm py-2 rounded-lg text-label-lg text-on-surface hover:bg-surface-container" href="#priorizacion">Priorización UPZ</a>
+    <a class="px-space-sm py-2 rounded-lg text-label-lg text-on-surface hover:bg-surface-container" href="#eventos">Eventos del Modelo</a>
+    <a class="px-space-sm py-2 rounded-lg text-label-lg text-on-surface hover:bg-surface-container" href="#protocolo">Protocolo IDIGER</a>
+    <a class="px-space-sm py-2 rounded-lg text-label-lg text-on-surface hover:bg-surface-container" href="#ciclo">Cómo funciona</a>
+  </nav>
+</header>
+
+<main class="w-full pt-16 md:pt-20 bg-surface">
+  <div class="flex flex-col w-full">
+
+    <!-- ============================ COMMAND STRIP ============================ -->
+    <section class="w-full px-4 md:px-margin py-space-md bg-surface-container-lowest shadow-sm border-b border-surface-container-high">
+      <div class="flex flex-col xl:flex-row xl:items-center justify-between gap-space-md">
+        <div class="flex flex-col md:flex-row md:items-center gap-space-sm min-w-0">
+          <div class="flex items-center gap-space-xs text-on-surface flex-shrink-0 bg-primary-container/10 border border-primary-container/30 px-space-sm py-1 rounded-lg">
+            <span class="material-symbols-outlined text-[18px] text-primary-container">location_on</span>
+            <span class="text-label-md uppercase tracking-wider font-bold text-primary-container">Engativá (Loc. 10)</span>
+            <span class="text-outline text-xs">|</span>
+            <span class="text-label-sm text-on-surface-variant">Filtrar UPZ:</span>
+          </div>
+          <div class="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 no-scrollbar" id="upz-pills"></div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-space-sm justify-start xl:justify-end">
+          <div class="flex items-center bg-surface-container rounded-lg p-1" id="layer-switch">
+            <button class="flex items-center gap-1.5 px-space-sm py-1 rounded-lg bg-surface-container-lowest text-label-md text-on-surface shadow-sm" data-layer="todos" type="button">
+              <span class="material-symbols-outlined text-[16px] text-primary-container">layers</span>
+              <span>Todos</span>
+            </button>
+            <button class="flex items-center gap-1.5 px-space-sm py-1 rounded-lg hover:bg-surface-container-lowest/60 text-label-md text-on-surface-variant" data-layer="agua" type="button">
+              <span class="material-symbols-outlined text-[16px]">flood</span>
+              <span class="hidden md:inline">Agua</span>
+            </button>
+            <button class="flex items-center gap-1.5 px-space-sm py-1 rounded-lg hover:bg-surface-container-lowest/60 text-label-md text-on-surface-variant" data-layer="basura" type="button">
+              <span class="material-symbols-outlined text-[16px]">delete</span>
+              <span class="hidden md:inline">Basura</span>
+            </button>
+          </div>
+
+          <div class="flex items-center bg-surface-container-high rounded-lg p-0.5 text-on-surface" id="time-switch">
+            <button class="px-2.5 py-1 rounded-lg bg-inverse-surface text-inverse-on-surface text-label-sm font-bold flex items-center gap-1" data-time="live" type="button">
+              <span class="h-1.5 w-1.5 rounded-full bg-secondary animate-ping"></span>
+              En Vivo
+            </button>
+            <button class="px-2.5 py-1 rounded-lg hover:bg-surface-container text-label-sm text-on-surface-variant" data-time="1h" type="button">1h</button>
+            <button class="px-2.5 py-1 rounded-lg hover:bg-surface-container text-label-sm text-on-surface-variant font-bold text-primary" data-time="todo" type="button">Histórico</button>
+          </div>
+
+          <button class="flex items-center gap-space-xs bg-primary-container text-on-primary text-label-md px-space-md py-2 rounded-lg shadow hover:bg-primary transition-colors" type="button" id="btn-actualizar">
+            <span class="material-symbols-outlined text-[18px]">sync</span>
+            <span class="font-bold">Actualizar</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ KPI BENTO ============================ -->
+    <section class="w-full px-4 md:px-margin py-space-md">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-space-md" id="kpi-grid"></div>
+    </section>
+
+    <!-- ============================ MAPA + PANEL ============================ -->
+    <section class="w-full px-4 md:px-margin pb-space-xl" id="mapa">
+      <div class="grid grid-cols-1 xl:grid-cols-12 gap-space-md items-start">
+
+        <!-- Mapa -->
+        <div class="xl:col-span-8 flex flex-col bg-surface-container-lowest rounded-xl shadow-md overflow-hidden">
+          <div class="p-space-md flex flex-wrap items-center justify-between gap-space-sm border-b border-surface-container-high">
+            <div class="flex items-center gap-space-sm min-w-0">
+              <span class="w-3.5 h-3.5 rounded-full bg-primary-container animate-ping flex-shrink-0"></span>
+              <div class="min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <h2 class="text-headline-sm text-on-surface">Mapa de detecciones — Localidad 10</h2>
+                  <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-secondary-container text-on-secondary-container">MODELO YOLO v2</span>
+                </div>
+                <p class="text-[12px] leading-4 text-on-surface-variant" id="mapa-subtitulo">Cargando eventos del modelo…</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="inline-flex items-center gap-1 text-label-sm px-space-xs py-1 rounded bg-surface-container text-on-surface">
+                <span class="material-symbols-outlined text-[14px] text-primary-container">sensors</span>
+                <span id="map-sensores">—</span>
+              </span>
+              <span class="inline-flex items-center gap-1 text-label-sm px-space-xs py-1 rounded bg-surface-container text-on-surface">
+                <span class="material-symbols-outlined text-[14px]">update</span>
+                <span id="map-hora">—</span>
+              </span>
+            </div>
+          </div>
+
+          <!-- Contenedor del mapa real de Engativá -->
+          <div class="relative w-full h-[360px] sm:h-[520px] lg:h-[680px] bg-surface-container-low overflow-hidden select-none">
+            <div class="absolute inset-0 flex items-center justify-center">
+              <div class="relative h-full aspect-[664/700] max-w-full" id="map-box">
+                <img id="map-img" alt="Mapa oficial de la Localidad 10 de Engativá"
+                     class="absolute inset-0 w-full h-full object-contain"
+                     src="data/maps/engativa_jaboque.png"
+                     onerror="this.onerror=null;this.src='../data/maps/engativa_jaboque.png'"/>
+                <div class="absolute inset-0" id="heat-layer"></div>
+                <div class="absolute inset-0" id="pins-layer"></div>
+              </div>
+            </div>
+
+            <div class="absolute top-3 right-3 flex flex-col gap-1.5 z-20">
+              <button class="w-9 h-9 rounded-lg bg-surface-container-lowest text-on-surface shadow hover:bg-surface-container flex items-center justify-center" title="Acercar" type="button" data-zoom="in"><span class="material-symbols-outlined text-[18px]">add</span></button>
+              <button class="w-9 h-9 rounded-lg bg-surface-container-lowest text-on-surface shadow hover:bg-surface-container flex items-center justify-center" title="Alejar" type="button" data-zoom="out"><span class="material-symbols-outlined text-[18px]">remove</span></button>
+              <button class="w-9 h-9 rounded-lg bg-surface-container-lowest text-primary shadow hover:bg-surface-container flex items-center justify-center" title="Centrar Engativá" type="button" data-zoom="reset"><span class="material-symbols-outlined text-[18px]">my_location</span></button>
+            </div>
+
+            <div class="absolute bottom-3 left-3 p-space-sm bg-surface-container-lowest/95 backdrop-blur-md rounded-xl shadow-lg border border-surface-container-high z-20 max-w-[15rem]">
+              <div class="flex items-center justify-between mb-1.5 gap-2">
+                <span class="text-label-sm font-bold text-on-surface uppercase tracking-wider">Severidad</span>
+                <span class="text-[11px] text-primary font-bold" id="leyenda-total">—</span>
+              </div>
+              <div class="grid grid-cols-1 gap-y-1">
+                <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full sev-critico flex-shrink-0"></span><div class="flex flex-col"><span class="text-label-sm font-bold text-on-surface">Crítico (&gt;40 cm)</span><span class="text-[10px] text-on-surface-variant -mt-0.5">Agua sobre la calzada</span></div></div>
+                <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full sev-alto flex-shrink-0"></span><div class="flex flex-col"><span class="text-label-sm font-bold text-on-surface">Alto (20–40 cm)</span><span class="text-[10px] text-on-surface-variant -mt-0.5">Encharcamiento activo</span></div></div>
+                <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full sev-medio flex-shrink-0"></span><div class="flex flex-col"><span class="text-label-sm font-bold text-on-surface">Sumidero tapado</span><span class="text-[10px] text-on-surface-variant -mt-0.5">Basura / drenaje obstruido</span></div></div>
+                <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full sev-ok flex-shrink-0"></span><div class="flex flex-col"><span class="text-label-sm font-bold text-on-surface">Limpia</span><span class="text-[10px] text-on-surface-variant -mt-0.5">Estado confirmado</span></div></div>
+              </div>
+            </div>
+
+            <div class="absolute bottom-3 right-3 hidden md:flex items-center gap-2 px-space-sm py-1.5 bg-surface-container-lowest/90 backdrop-blur rounded-lg shadow text-on-surface text-label-sm z-20 border border-surface-container-high">
+              <span class="w-3 h-3 bg-hydro rounded-full inline-block"></span>
+              <span>Humedal Jaboque / Río Bogotá</span>
+            </div>
+
+            <div class="absolute top-3 left-3 z-20 w-60 bg-inverse-surface text-inverse-on-surface rounded-xl shadow-xl p-3 hidden" id="pin-card">
+              <div class="flex items-center justify-between">
+                <span class="text-label-sm text-secondary-container" id="pin-card-id">—</span>
+                <button class="text-inverse-on-surface/70 hover:text-white" id="pin-card-close" type="button"><span class="material-symbols-outlined text-[16px]">close</span></button>
+              </div>
+              <div class="text-headline-sm text-white mt-1" id="pin-card-title">—</div>
+              <p class="text-[12px] text-inverse-on-surface/80" id="pin-card-detail">—</p>
+              <div class="text-[10px] text-secondary-container mt-1 font-semibold" id="pin-card-extra">—</div>
+            </div>
+          </div>
+
+          <!-- Barra del modelo -->
+          <div class="p-space-sm bg-surface-container-low flex flex-col sm:flex-row items-start sm:items-center justify-between gap-space-sm border-t border-surface-container-high">
+            <div class="flex items-center gap-space-xs text-on-surface">
+              <span class="material-symbols-outlined text-primary-container text-[18px]">smart_toy</span>
+              <span class="text-label-md font-bold">Modelo:</span>
+              <span class="text-[12px] text-on-surface-variant truncate max-w-[16rem]" id="modelo-nombre">—</span>
+            </div>
+            <div class="flex items-center gap-space-sm flex-wrap" id="modelo-chips"></div>
+          </div>
+        </div>
+
+        <!-- Panel derecho -->
+        <div class="xl:col-span-4 flex flex-col gap-space-md">
+
+          <div class="bg-surface-container-lowest p-space-md rounded-xl shadow-sm" id="priorizacion">
+            <div class="flex items-center justify-between pb-space-sm">
+              <div>
+                <h3 class="text-headline-md text-on-surface">UPZ priorizadas</h3>
+                <p class="text-[12px] text-on-surface-variant">Calculado con las detecciones del modelo</p>
+              </div>
+              <span class="material-symbols-outlined text-primary-container">format_list_numbered</span>
+            </div>
+            <div class="relative my-space-xs">
+              <span class="material-symbols-outlined absolute left-3 top-2 text-on-surface-variant text-[18px]">search</span>
+              <input class="w-full pl-9 pr-3 py-1.5 rounded-lg bg-surface-container text-[13px] text-on-surface border border-surface-container-high focus:outline-none focus:border-primary-container"
+                     id="barrio-search" placeholder="Buscar barrio o UPZ…" type="text"/>
+            </div>
+            <div class="flex flex-col gap-space-sm mt-space-sm" id="ranking-list"></div>
+          </div>
+
+          <div class="bg-surface-container-lowest p-space-md rounded-xl shadow-sm flex flex-col gap-space-sm" id="protocolo">
+            <div class="flex items-center justify-between">
+              <h3 class="text-headline-sm text-on-surface flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-primary-container">alt_route</span>
+                Protocolo operativo — Engativá
+              </h3>
+              <span class="text-label-sm bg-primary-container text-on-primary px-2 py-0.5 rounded font-semibold">COE 123</span>
+            </div>
+            <div class="flex flex-col gap-2">
+              <button class="w-full text-left p-space-sm rounded-lg bg-surface-container-low hover:bg-surface-container flex items-center justify-between transition-colors" type="button">
+                <div class="flex items-center gap-space-sm min-w-0">
+                  <div class="w-8 h-8 rounded-lg bg-primary text-on-primary flex items-center justify-center flex-shrink-0"><span class="material-symbols-outlined text-[18px]">water_pump</span></div>
+                  <div class="min-w-0">
+                    <div class="text-label-md font-bold text-on-surface truncate">Cuadrillas IDIGER / drenaje</div>
+                    <div class="text-[11px] text-on-surface-variant">Deprimidos y troncales de Engativá</div>
+                  </div>
+                </div>
+                <span class="material-symbols-outlined text-on-surface-variant">arrow_forward</span>
+              </button>
+              <button class="w-full text-left p-space-sm rounded-lg bg-surface-container-low hover:bg-surface-container flex items-center justify-between transition-colors" type="button">
+                <div class="flex items-center gap-space-sm min-w-0">
+                  <div class="w-8 h-8 rounded-lg bg-primary-container text-on-primary flex items-center justify-center flex-shrink-0"><span class="material-symbols-outlined text-[18px]">flood</span></div>
+                  <div class="min-w-0">
+                    <div class="text-label-md font-bold text-on-surface truncate">Control compuertas Humedal Jaboque</div>
+                    <div class="text-[11px] text-on-surface-variant">Alivio hidráulico hacia el Río Bogotá</div>
+                  </div>
+                </div>
+                <span class="material-symbols-outlined text-on-surface-variant">arrow_forward</span>
+              </button>
+              <button class="w-full text-left p-space-sm rounded-lg bg-surface-container-low hover:bg-surface-container flex items-center justify-between transition-colors" type="button">
+                <div class="flex items-center gap-space-sm min-w-0">
+                  <div class="w-8 h-8 rounded-lg bg-secondary text-on-secondary flex items-center justify-center flex-shrink-0"><span class="material-symbols-outlined text-[18px]">directions_bus</span></div>
+                  <div class="min-w-0">
+                    <div class="text-label-md font-bold text-on-surface truncate">Desvíos TransMilenio</div>
+                    <div class="text-[11px] text-on-surface-variant">Portal 80, Quirigua y Calle 72</div>
+                  </div>
+                </div>
+                <span class="material-symbols-outlined text-on-surface-variant">arrow_forward</span>
+              </button>
+            </div>
+            <div class="pt-2 border-t border-surface-container-high">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-label-md font-bold text-on-surface">Despacho a camiones EAAB</span>
+                <button class="text-label-sm text-primary-container hover:text-primary font-bold flex items-center gap-0.5" id="btn-dispatch" type="button">
+                  Generar rutas <span class="material-symbols-outlined text-[14px]">refresh</span>
+                </button>
+              </div>
+              <div class="flex flex-col gap-1.5" id="dispatch-list"></div>
+            </div>
+            <div class="mt-1 pt-2 flex items-center justify-between text-on-surface-variant text-[11px] border-t border-surface-container-high">
+              <span>Alcaldía Local de Engativá / IDIGER / EAAB</span>
+              <span class="font-semibold text-primary-container">Monitoreo activo</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ EVENTOS DEL MODELO ============================ -->
+    <section class="w-full px-4 md:px-margin pb-space-xl" id="eventos">
+      <div class="bg-surface-container-lowest rounded-xl shadow-sm p-space-md">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-space-sm mb-space-sm">
+          <div>
+            <h3 class="text-headline-md text-on-surface">Eventos del modelo YOLO</h3>
+            <p class="text-[12px] text-on-surface-variant">JSON publicado por el monitor (<code class="bg-surface-container px-1 rounded">data/live/detecciones.json</code>) — sin geolocalización exacta, posición aleatoria en el mapa</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="inline-flex items-center gap-1 text-label-sm bg-secondary-container/30 text-on-secondary-container px-2 py-1 rounded-lg">
+              <span class="material-symbols-outlined text-[14px]">smart_toy</span> best.pt
+            </span>
+            <span class="inline-flex items-center gap-1 text-label-sm bg-surface-container text-on-surface px-2 py-1 rounded-lg" id="eventos-total">— eventos</span>
+          </div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-space-sm" id="eventos-list"></div>
+      </div>
+    </section>
+
+    <!-- ============================ CICLO SAPO ============================ -->
+    <section class="w-full px-4 md:px-margin pb-space-xl" id="ciclo">
+      <div class="bg-surface-container-lowest rounded-xl shadow-sm p-space-md">
+        <div class="mb-space-md">
+          <h3 class="text-headline-md text-on-surface">Cómo funciona SAPO</h3>
+          <p class="text-[12px] text-on-surface-variant max-w-3xl">
+            El problema no es la lluvia: el sistema actúa tarde y a ciegas. SAPO reutiliza las cámaras del
+            Centro de Movilidad y la flota de succión de la EAAB para pasar de reaccionar a prevenir.
+          </p>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-space-sm">
+          <div class="p-space-sm rounded-xl bg-surface-container-low border-l-4 border-primary-container">
+            <div class="flex items-center gap-2 mb-1"><span class="material-symbols-outlined text-primary-container">visibility</span><span class="text-label-lg font-bold text-on-surface">1. Detectar</span></div>
+            <p class="text-[12px] leading-4 text-on-surface-variant">YOLOv8 entrenado (limpia / tapada / con_agua) sobre las cámaras existentes. Si llovió y el agua no baja, se infiere un taponamiento interno sin sensores en la tubería.</p>
+          </div>
+          <div class="p-space-sm rounded-xl bg-surface-container-low border-l-4 border-secondary-container">
+            <div class="flex items-center gap-2 mb-1"><span class="material-symbols-outlined text-secondary">database</span><span class="text-label-lg font-bold text-on-surface">2. Priorizar</span></div>
+            <p class="text-[12px] leading-4 text-on-surface-variant">Cada evento viaja como JSON georreferenciado y se cruza con la repetición histórica para generar el mapa de puntos críticos de Engativá.</p>
+          </div>
+          <div class="p-space-sm rounded-xl bg-surface-container-low border-l-4 border-primary">
+            <div class="flex items-center gap-2 mb-1"><span class="material-symbols-outlined text-primary">local_shipping</span><span class="text-label-lg font-bold text-on-surface">3. Actuar</span></div>
+            <p class="text-[12px] leading-4 text-on-surface-variant">Alerta a EAAB, IDIGER, Movilidad y aseo. Orden y ruta automática para camiones de presión-succión que destapan el sumidero por dentro.</p>
+          </div>
+          <div class="p-space-sm rounded-xl bg-surface-container-low border-l-4 border-tertiary">
+            <div class="flex items-center gap-2 mb-1"><span class="material-symbols-outlined text-tertiary">park</span><span class="text-label-lg font-bold text-on-surface">4. Prevenir</span></div>
+            <p class="text-[12px] leading-4 text-on-surface-variant">En los puntos que más se repiten, alcorques existentes se convierten en alcorques inundables con plantas nativas, cuidados por la comisión ambiental de la JAC.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</main>
+
+<!-- ============================ MODAL ALERTAS ============================ -->
+<div class="fixed inset-0 z-[60] hidden" id="alert-modal">
+  <div class="absolute inset-0 bg-on-surface/40" data-close-modal></div>
+  <div class="relative mx-auto mt-24 w-[min(92vw,32rem)] bg-surface-container-lowest rounded-xl shadow-2xl p-space-md">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="material-symbols-outlined text-primary-container">warning</span>
+          <h4 class="text-headline-md text-on-surface">Alertas derivadas del modelo</h4>
+        </div>
+        <p class="text-[12px] text-on-surface-variant mt-1">Detecciones críticas y drenaje lento confirmado por el monitor.</p>
+      </div>
+      <button class="text-on-surface-variant hover:text-on-surface" data-close-modal type="button"><span class="material-symbols-outlined">close</span></button>
+    </div>
+    <div class="mt-3 flex flex-col gap-2 max-h-[50vh] overflow-y-auto" id="alert-modal-body"></div>
+    <div class="mt-4 flex flex-wrap gap-2 justify-end">
+      <button class="px-space-md py-2 rounded-lg bg-surface-container text-label-md text-on-surface hover:bg-surface-container-high" data-close-modal type="button">Cerrar</button>
+      <button class="px-space-md py-2 rounded-lg bg-primary text-on-primary text-label-md font-bold hover:bg-primary-container" data-close-modal type="button">Enviar a COE 123</button>
+    </div>
+  </div>
+</div>
+
+<footer class="w-full bg-surface-container-low border-t border-surface-container-high py-space-lg">
+  <div class="w-full px-4 md:px-margin flex flex-col md:flex-row items-center justify-between gap-space-md">
+    <div class="flex flex-wrap items-center justify-center gap-space-sm">
+      <span class="text-label-md text-on-surface font-bold">Alcaldía Mayor de Bogotá — Localidad 10 de Engativá</span>
+      <span class="text-on-surface-variant">|</span>
+      <span class="text-[12px] text-on-surface-variant">IDIGER · EAAB · Centro de Movilidad</span>
+    </div>
+    <div class="flex flex-wrap items-center justify-center gap-space-md">
+      <span class="text-[12px] text-on-surface-variant">Emergencias Engativá: 123</span>
+      <span class="text-[12px] text-on-surface-variant">© 2026 SAPO · Bogotá D.C.</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+/* ============================================================
+   Fuente de datos: el JSON que publica el modelo YOLO
+   (Modelo_Entrenado/sapo_json.py -> data/live/detecciones.json)
+   ============================================================ */
+const FUENTES = {
+  detecciones: [
+    "data/live/detecciones.json",
+    "../data/live/detecciones.json",
+    "/data/live/detecciones.json"
+  ]
+};
+
+const UPZ_CATALOGO = [
+  { zona_id: "upz74", codigo: "74", nombre: "Engativá" },
+  { zona_id: "upz73", codigo: "73", nombre: "Garcés Navas" },
+  { zona_id: "upz31", codigo: "31", nombre: "Santa Cecilia" },
+  { zona_id: "upz72", codigo: "72", nombre: "Bolivia" },
+  { zona_id: "upz116", codigo: "116", nombre: "Álamos" },
+  { zona_id: "upz30", codigo: "30", nombre: "Boyacá Real" },
+  { zona_id: "upz29", codigo: "29", nombre: "Minuto de Dios" },
+  { zona_id: "upz26", codigo: "26", nombre: "Las Ferias" },
+  { zona_id: "upz105", codigo: "105", nombre: "Jardín Botánico" }
+];
+
+const state = {
+  modelo: { modelo: "", origen: "", actualizado: "", detecciones: [] },
+  upzFilter: "all",
+  layer: "todos",
+  search: ""
+};
+
+async function fetchJSON(paths) {
+  for (const p of paths) {
+    try {
+      const r = await fetch(p, { cache: "no-store" });
+      if (r.ok) return await r.json();
+    } catch (e) { /* siguiente ruta */ }
+  }
+  return null;
+}
+
+async function cargarModelo() {
+  let data = await fetchJSON(FUENTES.detecciones);
+  if (!data) {
+    // fallback: la API expone las mismas detecciones
+    try {
+      const r = await fetch("/api/detections?limit=200", { cache: "no-store" });
+      if (r.ok) {
+        const body = await r.json();
+        data = { modelo: "api", origen: "api", actualizado: new Date().toISOString(), detecciones: body.items || [] };
+      }
+    } catch (e) { /* sin API */ }
+  }
+  if (!data) data = { modelo: "", origen: "", actualizado: "", detecciones: [] };
+  if (Array.isArray(data)) data = { modelo: "", origen: "", actualizado: "", detecciones: data };
+  state.modelo = data;
+}
+
+function eventos() {
+  return state.modelo.detecciones || [];
+}
+
+function severidad(e) {
+  if (e.nivel_agua_cm > 40) return "critico";
+  if (e.nivel_agua_cm > 20) return "alto";
+  if (e.nivel_agua_cm > 10) return "medio";
+  if ((e.cobertura_basura_pct || 0) >= 40) return "medio";
+  if (e.clase === "basura" || e.clase_modelo === "tapada") return "medio";
+  if (e.clase === "limpia") return "ok";
+  return "leve";
+}
+function sevClass(e) {
+  return ({ critico: "sev-critico", alto: "sev-alto", medio: "sev-medio", leve: "sev-leve", ok: "sev-ok" })[severidad(e)];
+}
+function sevBadge(e) {
+  return ({
+    critico: "bg-primary-container text-on-primary",
+    alto: "bg-secondary-container text-on-secondary-container",
+    medio: "bg-secondary-container/60 text-on-secondary-container",
+    leve: "bg-surface-container-high text-on-surface",
+    ok: "bg-emerald-100 text-emerald-800"
+  })[severidad(e)];
+}
+function upzIdDe(texto) {
+  const t = (texto || "").toLowerCase();
+  for (const u of UPZ_CATALOGO) {
+    if (t.includes(u.codigo) || t.includes(u.nombre.toLowerCase())) return u.zona_id;
+  }
+  return "all";
+}
+function coincideFiltro(e) {
+  return state.upzFilter === "all" || upzIdDe(e.upz) === state.upzFilter;
+}
+function coincideCapa(e) {
+  if (state.layer === "todos") return true;
+  return (e.clase || e.clase_modelo) === state.layer;
+}
+function fmtHora(iso) {
+  if (!iso) return "—";
+  try {
+    const d = new Date(iso);
+    return d.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  } catch (e) { return "—"; }
+}
+
+/* ================= Header / KPIs ================= */
+function renderHeader() {
+  const evs = eventos();
+  const dispositivos = new Set(evs.map(e => e.dispositivo_id));
+  document.getElementById("header-modelo").textContent =
+    evs.length ? `${evs.length} eventos · ${dispositivos.size} fuente(s) del modelo` : "Sin eventos del modelo";
+  document.getElementById("map-sensores").textContent = `${dispositivos.size} fuente(s)`;
+  document.getElementById("map-hora").textContent =
+    state.modelo.actualizado ? `JSON ${fmtHora(state.modelo.actualizado)}` : "sin JSON";
+  document.getElementById("modelo-nombre").textContent = state.modelo.modelo || "best.pt (aún sin JSON)";
+  document.getElementById("mapa-subtitulo").textContent = evs.length
+    ? `${evs.length} detecciones publicadas por el modelo · posición aleatoria (sin GPS) sobre el mapa`
+    : "Sin detecciones: ejecuta el monitor o sapo_json.py para publicar el JSON";
+  document.getElementById("leyenda-total").textContent = `${evs.length} eventos`;
+  document.getElementById("eventos-total").textContent = `${evs.length} eventos`;
+
+  const porClase = { agua: 0, basura: 0, limpia: 0 };
+  evs.forEach(e => { porClase[e.clase] = (porClase[e.clase] || 0) + 1; });
+  document.getElementById("modelo-chips").innerHTML = `
+    <span class="inline-flex items-center gap-1 text-label-sm px-space-xs py-1 rounded bg-surface-container text-on-surface">
+      <span class="material-symbols-outlined text-[14px] text-hydro">flood</span> agua ${porClase.agua || 0}
+    </span>
+    <span class="inline-flex items-center gap-1 text-label-sm px-space-xs py-1 rounded bg-surface-container text-on-surface">
+      <span class="material-symbols-outlined text-[14px] text-secondary">delete</span> basura ${porClase.basura || 0}
+    </span>
+    <span class="inline-flex items-center gap-1 text-label-sm px-space-xs py-1 rounded bg-surface-container text-on-surface">
+      <span class="material-symbols-outlined text-[14px] text-emerald-600">check_circle</span> limpia ${porClase.limpia || 0}
+    </span>`;
+}
+
+function renderKPIs() {
+  const evs = eventos();
+  const conAgua = evs.filter(e => e.clase === "agua");
+  const criticos = evs.filter(e => e.nivel_agua_cm > 40);
+  const conBasura = evs.filter(e => e.clase === "basura");
+  const lentos = evs.filter(e => e.drena_lento);
+  const maxNivel = evs.reduce((m, e) => Math.max(m, e.nivel_agua_cm || 0), 0);
+  const topAgua = conAgua.slice().sort((a, b) => b.nivel_agua_cm - a.nivel_agua_cm)[0];
+  const upzsAgua = new Set(conAgua.map(e => e.upz));
+
+  const alerta = criticos.length > 0 || lentos.length > 0;
+  const cards = [
+    {
+      label: "Estado del monitoreo", icon: "warning", border: alerta ? "border-primary-container" : "border-emerald-600",
+      value: `<div class="inline-flex items-center gap-1.5 px-space-sm py-1 rounded-lg ${alerta ? "bg-error-container/40" : "bg-emerald-50"}">
+                <span class="h-2.5 w-2.5 rounded-full ${alerta ? "bg-primary-container animate-pulse" : "bg-emerald-600"}"></span>
+                <span class="text-headline-sm font-bold tracking-tight ${alerta ? "text-primary" : "text-emerald-700"}">
+                  ${alerta ? "ALERTA - AGUA EN CALZADA" : "ESTABLE"}
+                </span>
+              </div>`,
+      foot: `<span>${conAgua.length} evento(s) con agua</span><span class="text-primary-container font-semibold">${upzsAgua.size} UPZ afectada(s)</span>`
+    },
+    {
+      label: "Encharcamientos críticos (>40 cm)", icon: "crisis_alert", border: "",
+      value: `<span class="text-display-sm text-primary-container tracking-tight">${criticos.length}</span>
+              <span class="text-headline-sm text-on-surface font-semibold">eventos</span>
+              <span class="ml-auto text-label-sm text-primary font-bold bg-error-container/40 px-1.5 py-0.5 rounded-lg">${topAgua ? topAgua.barrio || topAgua.upz : "—"}</span>`,
+      foot: `<span class="material-symbols-outlined text-[14px] text-error">water</span><span>${lentos.length} con drenaje lento confirmado</span>`
+    },
+    {
+      label: "Nivel de agua máximo detectado", icon: "rainy", border: "",
+      value: `<span class="text-display-sm text-on-surface tracking-tight">${maxNivel.toFixed(1)}</span>
+              <span class="text-headline-sm text-on-surface-variant font-medium">cm</span>
+              <span class="ml-auto text-label-sm text-on-secondary-container bg-secondary-container/20 px-1.5 py-0.5 rounded-lg font-bold">estimado por YOLO</span>`,
+      foot: `<span class="truncate">${topAgua ? `${topAgua.barrio || ""} · ${topAgua.upz || ""}` : "Sin agua detectada"}</span><span class="text-label-sm">${topAgua ? fmtHora(topAgua.timestamp) : ""}</span>`
+    },
+    {
+      label: "Sumideros con basura (clase tapada)", icon: "water_damage", border: "",
+      value: `<span class="text-display-sm text-on-surface tracking-tight">${conBasura.length}</span>
+              <span class="text-headline-sm text-on-surface font-semibold">sumideros</span>
+              <span class="ml-auto text-label-sm text-primary-container font-bold">${evs.length} eventos totales</span>`,
+      foot: `<div class="mt-space-sm w-full bg-surface-container-high rounded-full h-2 overflow-hidden">
+               <div class="bg-secondary-container h-full rounded-full" style="width:${evs.length ? Math.round(conBasura.length / evs.length * 100) : 0}%"></div>
+             </div>`
+    }
+  ];
+  document.getElementById("kpi-grid").innerHTML = cards.map(c => `
+    <div class="bg-surface-container-lowest p-space-md rounded-xl shadow-sm flex flex-col justify-between ${c.border}">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-label-sm uppercase tracking-wider text-on-surface-variant">${c.label}</span>
+        <span class="material-symbols-outlined text-primary-container">${c.icon}</span>
+      </div>
+      <div class="flex items-baseline gap-space-xs flex-wrap">${c.value}</div>
+      <div class="mt-space-sm flex items-center gap-1 justify-between text-on-surface-variant text-[12px]">${c.foot}</div>
+    </div>`).join("");
+}
+
+/* ================= Filtros UPZ ================= */
+function renderPills() {
+  const pills = [{ zona_id: "all", codigo: "", nombre: `Todas las UPZ (${UPZ_CATALOGO.length})` }, ...UPZ_CATALOGO];
+  document.getElementById("upz-pills").innerHTML = pills.map(p => {
+    const active = state.upzFilter === p.zona_id;
+    const label = p.zona_id === "all" ? p.nombre : `UPZ ${p.codigo} ${p.nombre}`;
+    return `<button class="px-space-sm py-1 rounded-full text-label-md whitespace-nowrap transition-all ${active
+      ? "bg-primary-container text-on-primary font-bold shadow-sm"
+      : "bg-surface-container hover:bg-surface-container-high text-on-surface"}"
+      data-upz="${p.zona_id}" type="button">${label}</button>`;
+  }).join("");
+}
+
+/* ================= Mapa ================= */
+function renderMap() {
+  const evs = eventos().filter(coincideFiltro).filter(coincideCapa);
+  const heat = document.getElementById("heat-layer");
+  const pins = document.getElementById("pins-layer");
+
+  heat.innerHTML = evs.filter(e => e.clase === "agua" && e.nivel_agua_cm > 0).map(e => {
+    const size = 8 + Math.min(e.nivel_agua_cm, 55) / 4;
+    const color = severidad(e) === "critico" ? "rgba(200,16,46,.55)"
+      : severidad(e) === "alto" ? "rgba(234,88,12,.5)"
+      : "rgba(245,158,11,.4)";
+    return `<div class="heat-blob" style="left:${e.localizacion_x}%;top:${e.localizacion_y}%;width:${size}%;aspect-ratio:1/1;transform:translate(-50%,-50%);background:radial-gradient(circle, ${color} 0%, transparent 70%)"></div>`;
+  }).join("");
+
+  pins.innerHTML = evs.map(e => {
+    const sev = severidad(e);
+    const esAlerta = sev === "critico" || sev === "alto";
+    const icono = e.clase_modelo === "con_agua" ? "flood" : e.clase_modelo === "tapada" ? "delete" : "check_circle";
+    return `
+      <div class="absolute pin-wrap cursor-pointer" style="left:${e.localizacion_x}%;top:${e.localizacion_y}%;transform:translate(-50%,-50%)"
+           data-pin="${e.evento_id}">
+        ${esAlerta ? `<span class="animate-ping absolute h-8 w-8 rounded-full opacity-60 ${sevClass(e)}"></span>` : ""}
+        <div class="relative ${esAlerta ? "h-6 w-6" : "h-5 w-5"} rounded-full ${sevClass(e)} text-white flex items-center justify-center shadow-lg border-2 border-white">
+          <span class="material-symbols-outlined text-[12px]">${icono}</span>
+        </div>
+        <div class="pin-tooltip absolute bottom-8 left-1/2 -translate-x-1/2 w-52 bg-inverse-surface text-inverse-on-surface p-2 rounded-lg shadow-xl z-30 text-left pointer-events-none">
+          <div class="flex items-center justify-between text-secondary-container text-label-sm">
+            <span>${(e.evento_id || "").slice(-12)}</span>
+            <span class="${sevBadge(e)} px-1 rounded text-[10px] font-bold">${(e.estado || e.clase || "").toUpperCase()}</span>
+          </div>
+          <div class="font-bold text-headline-sm text-white">${e.nivel_agua_cm ? e.nivel_agua_cm + " cm" : (e.clase_modelo || e.clase)}</div>
+          <p class="text-[11px] text-inverse-on-surface/80">${e.barrio || ""} · ${e.upz || ""}</p>
+          <div class="text-[10px] text-secondary-container mt-1 font-semibold">conf ${(e.confianza ?? 0).toFixed(2)} · (${e.localizacion_x}, ${e.localizacion_y})</div>
+        </div>
+      </div>`;
+  }).join("");
+
+  pins.querySelectorAll("[data-pin]").forEach(el => {
+    el.addEventListener("click", () => {
+      pins.querySelectorAll(".pin-wrap").forEach(p => p.classList.remove("is-open"));
+      el.classList.add("is-open");
+      showPinCard(el.dataset.pin);
+    });
+  });
+}
+
+function showPinCard(eventoId) {
+  const e = eventos().find(x => x.evento_id === eventoId);
+  if (!e) return;
+  const card = document.getElementById("pin-card");
+  document.getElementById("pin-card-id").textContent = (e.evento_id || "").slice(-14);
+  document.getElementById("pin-card-title").textContent =
+    e.nivel_agua_cm ? `${e.nivel_agua_cm} cm · ${e.barrio || e.upz}` : `${e.clase_modelo || e.clase} · ${e.barrio || e.upz}`;
+  document.getElementById("pin-card-detail").textContent =
+    `estado ${e.estado || "—"} · confianza ${(e.confianza ?? 0).toFixed(2)}`;
+  document.getElementById("pin-card-extra").textContent =
+    `(${e.localizacion_x}, ${e.localizacion_y}) · ${e.upz || ""}` + (e.drena_lento ? " · DRENAJE LENTO" : "");
+  card.classList.remove("hidden");
+}
+document.getElementById("pin-card-close").addEventListener("click", () => {
+  document.getElementById("pin-card").classList.add("hidden");
+});
+
+/* ================= Ranking UPZ ================= */
+function renderRanking() {
+  const q = state.search.trim().toLowerCase();
+  const porUpz = new Map();
+  for (const e of eventos()) {
+    const id = upzIdDe(e.upz);
+    if (state.upzFilter !== "all" && id !== state.upzFilter) continue;
+    if (!porUpz.has(id)) porUpz.set(id, []);
+    porUpz.get(id).push(e);
+  }
+  const filas = UPZ_CATALOGO
+    .filter(u => porUpz.has(u.zona_id))
+    .map(u => {
+      const evs = porUpz.get(u.zona_id);
+      const agua = evs.filter(e => e.clase === "agua");
+      const basura = evs.filter(e => e.clase === "basura");
+      const maxNivel = evs.reduce((m, e) => Math.max(m, e.nivel_agua_cm || 0), 0);
+      const riesgo = Math.min(100, Math.round(
+        (maxNivel / 55) * 50 + (basura.length / Math.max(evs.length, 1)) * 25 + Math.min(evs.length / 8, 1) * 25
+      ));
+      const barrios = [...new Set(evs.map(e => e.barrio).filter(Boolean))];
+      const texto = (barrios.join(" ") + " " + u.nombre).toLowerCase();
+      if (q && !texto.includes(q)) return null;
+      const sev = maxNivel > 40 ? "critico" : maxNivel > 20 ? "alto" : basura.length ? "medio" : "leve";
+      const border = sev === "critico" ? "border-primary-container" : sev === "alto" ? "border-secondary-container" : "border-surface-container-high";
+      return `
+      <div class="p-space-sm rounded-xl bg-surface-container-low hover:bg-surface-container transition-all border-l-4 ${border}">
+        <div class="flex items-start justify-between">
+          <div class="flex items-center gap-space-xs">
+            <span class="text-display-sm ${sev === "critico" ? "text-primary-container" : sev === "alto" ? "text-secondary" : "text-on-surface-variant"} leading-none">${u.codigo}</span>
+            <div>
+              <h4 class="text-headline-sm text-on-surface">UPZ ${u.codigo} — ${u.nombre}</h4>
+              <span class="text-[12px] text-on-surface-variant">${agua.length} con agua · ${basura.length} con basura · ${evs.length} eventos</span>
+            </div>
+          </div>
+          <span class="inline-flex items-center gap-1 text-label-sm px-2 py-0.5 rounded-full font-bold ${sevBadge({ nivel_agua_cm: maxNivel, clase: basura.length ? "basura" : "agua" })}">
+            ${sev === "critico" ? '<span class="h-1.5 w-1.5 rounded-full bg-white animate-ping"></span>' : ""}
+            ${sev.toUpperCase()}
+          </span>
+        </div>
+        <div class="mt-2 text-[11px] text-on-surface-variant bg-surface-container-lowest p-2 rounded border border-surface-container-high">
+          <span class="font-semibold text-on-surface">Barrios detectados:</span> ${barrios.join(", ") || "—"}
+        </div>
+        <div class="mt-2 flex items-center justify-between text-on-surface">
+          <div class="flex flex-col">
+            <span class="text-[11px] text-on-surface-variant">Nivel máximo</span>
+            <span class="text-headline-sm font-bold text-primary-container">${maxNivel ? maxNivel.toFixed(1) + " cm" : "—"}</span>
+          </div>
+          <div class="flex flex-col text-right">
+            <span class="text-[11px] text-on-surface-variant">Riesgo</span>
+            <span class="text-label-md font-semibold text-on-surface">${riesgo}/100</span>
+          </div>
+        </div>
+      </div>`;
+    })
+    .filter(Boolean);
+
+  document.getElementById("ranking-list").innerHTML = filas.join("") ||
+    `<p class="text-[12px] text-on-surface-variant">Sin detecciones${q ? ` para «${state.search}»` : ""}.</p>`;
+}
+
+/* ================= Despacho ================= */
+function renderDispatchBase() {
+  // Puntos priorizados por riesgo (sin API): los 3 eventos de agua más altos
+  const top = eventos()
+    .filter(e => e.clase === "agua" || e.clase === "basura")
+    .sort((a, b) => (b.nivel_agua_cm || b.cobertura_basura_pct || 0) - (a.nivel_agua_cm || a.cobertura_basura_pct || 0))
+    .slice(0, 3);
+  document.getElementById("dispatch-list").innerHTML = top.map((e, i) => `
+    <div class="flex items-center justify-between gap-2 p-2 rounded-lg bg-surface-container-low">
+      <div class="min-w-0">
+        <div class="text-[12px] font-bold text-on-surface truncate">P${i + 1} · ${e.barrio || e.upz || e.evento_id}</div>
+        <div class="text-[11px] text-on-surface-variant truncate">${e.clase_modelo || e.clase} · ${e.nivel_agua_cm ? e.nivel_agua_cm + " cm" : e.cobertura_basura_pct + "% basura"}</div>
+      </div>
+      <div class="flex flex-col items-end flex-shrink-0">
+        <span class="text-label-sm px-1.5 py-0.5 rounded bg-surface-container-high text-on-surface">por asignar</span>
+        <span class="text-[10px] text-on-surface-variant">(${e.localizacion_x}, ${e.localizacion_y})</span>
+      </div>
+    </div>`).join("") || `<p class="text-[11px] text-on-surface-variant">Sin puntos priorizados.</p>`;
+}
+
+/* ================= Eventos del modelo ================= */
+function renderEventos() {
+  const evs = eventos().filter(coincideFiltro).filter(coincideCapa).slice(0, 18);
+  document.getElementById("eventos-list").innerHTML = evs.map(e => `
+    <div class="p-space-sm rounded-xl bg-surface-container-low border border-surface-container-high">
+      <div class="flex items-center justify-between">
+        <span class="text-label-sm text-on-surface-variant">${(e.evento_id || "").slice(-14)}</span>
+        <span class="text-label-sm px-1.5 py-0.5 rounded ${sevBadge(e)}">${(e.estado || e.clase || "").toUpperCase()}</span>
+      </div>
+      <div class="flex items-baseline gap-2 mt-1">
+        <span class="text-headline-sm font-bold text-on-surface">${e.nivel_agua_cm ? e.nivel_agua_cm + " cm" : e.clase_modelo || e.clase}</span>
+        <span class="text-[11px] text-on-surface-variant">conf ${(e.confianza ?? 0).toFixed(2)}</span>
+        ${e.drena_lento ? '<span class="text-[10px] font-bold text-primary">DRENAJE LENTO</span>' : ""}
+      </div>
+      <p class="text-[12px] leading-4 text-on-surface mt-1">${e.barrio || "—"} · ${e.upz || "—"}</p>
+      <div class="mt-2 flex items-center justify-between text-[11px] text-on-surface-variant">
+        <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[13px]">location_on</span>(${e.localizacion_x}, ${e.localizacion_y})</span>
+        <span>${fmtHora(e.timestamp)}</span>
+      </div>
+      ${e.frame_ref ? `<div class="mt-1 text-[10px] text-on-surface-variant truncate" title="${e.frame_ref}">frame: ${e.frame_ref.split("/").pop()}</div>` : ""}
+    </div>`).join("") || `<p class="text-[12px] text-on-surface-variant">Sin eventos del modelo todavía.</p>`;
+}
+
+/* ================= Modal alertas ================= */
+function renderAlertModal() {
+  const alertas = eventos().filter(e => e.drena_lento || e.nivel_agua_cm > 40).slice(0, 6);
+  document.getElementById("alert-modal-body").innerHTML = alertas.map(e => `
+    <div class="p-space-sm rounded-lg bg-surface-container-low border-l-4 ${e.nivel_agua_cm > 40 ? "border-primary-container" : "border-secondary-container"}">
+      <div class="flex items-center justify-between gap-2">
+        <span class="text-label-md font-bold text-on-surface">${e.barrio || e.upz || e.evento_id}</span>
+        <span class="text-label-sm px-1.5 py-0.5 rounded ${sevBadge(e)}">${e.nivel_agua_cm ? e.nivel_agua_cm + " cm" : "DRENAJE LENTO"}</span>
+      </div>
+      <p class="text-[11px] text-on-surface-variant mt-1">estado ${e.estado || "—"} · conf ${(e.confianza ?? 0).toFixed(2)} · ${fmtHora(e.timestamp)}</p>
+      <div class="text-[10px] text-on-surface-variant mt-1">Notificados: EAAB · IDIGER · MOVILIDAD · ASEO</div>
+    </div>`).join("") ||
+    `<p class="text-[12px] text-on-surface-variant">Sin alertas: el modelo no reporta agua crítica ni drenaje lento.</p>`;
+}
+
+/* ================= Interacciones ================= */
+function renderTodo() {
+  renderHeader(); renderKPIs(); renderPills(); renderMap();
+  renderRanking(); renderDispatchBase(); renderEventos();
+}
+
+function bindUI() {
+  document.getElementById("upz-pills").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-upz]");
+    if (!btn) return;
+    state.upzFilter = btn.dataset.upz;
+    renderPills(); renderMap(); renderRanking(); renderEventos();
+  });
+
+  document.getElementById("barrio-search").addEventListener("input", (e) => {
+    state.search = e.target.value;
+    renderRanking();
+  });
+
+  document.getElementById("layer-switch").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-layer]");
+    if (!btn) return;
+    state.layer = btn.dataset.layer;
+    document.querySelectorAll("#layer-switch [data-layer]").forEach(b => {
+      b.classList.toggle("bg-surface-container-lowest", b === btn);
+      b.classList.toggle("shadow-sm", b === btn);
+      b.classList.toggle("text-on-surface", b === btn);
+      b.classList.toggle("text-on-surface-variant", b !== btn);
+    });
+    renderMap(); renderEventos();
+  });
+
+  document.getElementById("time-switch").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-time]");
+    if (!btn) return;
+    document.querySelectorAll("#time-switch [data-time]").forEach(b => {
+      b.classList.toggle("bg-inverse-surface", b === btn);
+      b.classList.toggle("text-inverse-on-surface", b === btn);
+      b.classList.toggle("font-bold", b === btn);
+      b.classList.toggle("text-on-surface-variant", b !== btn);
+    });
+  });
+
+  document.querySelectorAll("[data-action='alerta']").forEach(b => {
+    b.addEventListener("click", () => {
+      renderAlertModal();
+      document.getElementById("alert-modal").classList.remove("hidden");
+    });
+  });
+  document.querySelectorAll("[data-close-modal]").forEach(b => {
+    b.addEventListener("click", () => document.getElementById("alert-modal").classList.add("hidden"));
+  });
+
+  document.getElementById("nav-toggle").addEventListener("click", () => {
+    document.getElementById("nav-mobile").classList.toggle("hidden");
+  });
+  document.querySelectorAll("#nav-mobile a").forEach(a => {
+    a.addEventListener("click", () => document.getElementById("nav-mobile").classList.add("hidden"));
+  });
+
+  let zoom = 1;
+  document.querySelectorAll("[data-zoom]").forEach(b => {
+    b.addEventListener("click", () => {
+      const box = document.getElementById("map-box");
+      if (b.dataset.zoom === "in") zoom = Math.min(zoom * 1.15, 2);
+      else if (b.dataset.zoom === "out") zoom = Math.max(zoom / 1.15, 1);
+      else zoom = 1;
+      box.style.transform = `scale(${zoom})`;
+      box.style.transition = "transform .2s ease";
+    });
+  });
+
+  document.getElementById("btn-actualizar").addEventListener("click", async () => {
+    await cargarModelo();
+    renderTodo();
+  });
+
+  document.getElementById("btn-dispatch").addEventListener("click", async () => {
+    const btn = document.getElementById("btn-dispatch");
+    btn.classList.add("opacity-50");
+    try {
+      const r = await fetch("/api/dispatch", { method: "POST" });
+      if (r.ok) {
+        const data = await r.json();
+        const ordenes = data.ordenes || [];
+        if (ordenes.length) {
+          document.getElementById("dispatch-list").innerHTML = ordenes.slice(0, 5).map(o => `
+            <div class="flex items-center justify-between gap-2 p-2 rounded-lg bg-surface-container-low">
+              <div class="min-w-0">
+                <div class="text-[12px] font-bold text-on-surface truncate">${o.orden_id} · ${o.camion_id}</div>
+                <div class="text-[11px] text-on-surface-variant truncate">${(o.ruta || []).slice(1, -1).join(" → ") || o.punto_critico_id}</div>
+              </div>
+              <div class="flex flex-col items-end flex-shrink-0">
+                <span class="text-label-sm px-1.5 py-0.5 rounded bg-primary-container text-on-primary">${o.estado}</span>
+                <span class="text-[10px] text-on-surface-variant">${o.distancia_estimada_km} km</span>
+              </div>
+            </div>`).join("");
+        }
+      }
+    } catch (e) { /* demo sin API */ }
+    btn.classList.remove("opacity-50");
+  });
+}
+
+/* ================= Init ================= */
+(async function init() {
+  await cargarModelo();
+  renderTodo();
+  bindUI();
+  setInterval(async () => { await cargarModelo(); renderTodo(); }, 30000);
+})();
+</script>
+</body>
+</html>
